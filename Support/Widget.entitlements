@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- pkd refuses to register unsandboxed app extensions, so the widget runs
+	     sandboxed with narrow exceptions: the folder it shares with the
+	     companion app, and read-only access to the Claude Code credentials so
+	     it can refresh itself when the app isn't running. It never writes them. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+	<array>
+		<string>/Library/Application Support/ClaudeCodeUsage/</string>
+	</array>
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+	<array>
+		<string>/.claude/.credentials.json</string>
+	</array>
+</dict>
+</plist>
