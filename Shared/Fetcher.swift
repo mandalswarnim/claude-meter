@@ -7,14 +7,25 @@ enum Fetcher {
 
     /// Fetch, persist, and return the resulting state. Never throws:
     /// failures are recorded in the state so callers/UI can show them.
+    ///
+    /// `minimumInterval` coalesces bursts (a click while a scheduled refresh
+    /// just ran). A rate-limit cooldown is always honoured, even when forced —
+    /// the endpoint hands out 429s that outlast any single request.
     @discardableResult
-    static func refresh() async -> StoreState {
+    static func refresh(minimumInterval: TimeInterval = 0) async -> StoreState {
         var state = Store.load()
-        state.lastAttemptAt = Date()
+        let now = Date()
+
+        if state.coolingDown(at: now) { return state }
+        if minimumInterval > 0, let last = state.lastAttemptAt,
+           now.timeIntervalSince(last) < minimumInterval, !state.hasError {
+            return state
+        }
+        state.lastAttemptAt = now
 
         guard let token = Credentials.token() else {
             state.lastErrorKind = .auth
-            state.lastErrorMessage = "No Claude Code credentials found"
+            state.lastErrorMessage = "Claude Code sign-in has expired"
             Store.save(state)
             return state
         }
@@ -30,10 +41,16 @@ enum Fetcher {
             if status == 401 || status == 403 {
                 state.lastErrorKind = .auth
                 state.lastErrorMessage = "Session expired — open Claude Code to sign in again"
+            } else if status == 429 {
+                let wait = retryAfterSeconds(response) ?? 120
+                state.lastErrorKind = .rateLimited
+                state.retryAfter = Date().addingTimeInterval(wait)
+                state.lastErrorMessage = "Claude is limiting usage checks — pausing briefly"
             } else if (200..<300).contains(status), let snapshot = parse(data) {
                 state.snapshot = snapshot
                 state.lastErrorKind = nil
                 state.lastErrorMessage = nil
+                state.retryAfter = nil
                 recordHistory(&state, snapshot: snapshot)
             } else {
                 state.lastErrorKind = .service
@@ -45,6 +62,26 @@ enum Fetcher {
         }
         Store.save(state)
         return state
+    }
+
+    /// `Retry-After` is either a delay in seconds or an HTTP date. Clamped so a
+    /// hostile or malformed value can't park the app for hours.
+    private static func retryAfterSeconds(_ response: URLResponse) -> TimeInterval? {
+        guard let http = response as? HTTPURLResponse,
+              let raw = http.value(forHTTPHeaderField: "Retry-After")?
+                  .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+        var seconds: TimeInterval?
+        if let value = TimeInterval(raw) {
+            seconds = value
+        } else {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "GMT")
+            formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+            seconds = formatter.date(from: raw)?.timeIntervalSinceNow
+        }
+        guard let seconds else { return nil }
+        return min(max(seconds, 30), 900)
     }
 
     // MARK: - Parsing

@@ -68,6 +68,9 @@ struct StatusFooter: View {
             if state.lastErrorKind == .auth {
                 Image(systemName: "person.crop.circle.badge.exclamationmark")
                 Text("Sign in via Claude Code")
+            } else if state.lastErrorKind == .rateLimited {
+                Image(systemName: "hourglass")
+                Text(footerText ?? "Paused briefly")
             } else if state.hasError {
                 Image(systemName: "exclamationmark.triangle.fill")
                 Text(footerText ?? "Unable to refresh")
@@ -76,14 +79,43 @@ struct StatusFooter: View {
             }
         }
         .font(.caption2)
-        .foregroundStyle(state.hasError ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
+        .foregroundStyle(statusColor)
         .lineLimit(1)
     }
 
+    private var statusColor: AnyShapeStyle {
+        switch state.lastErrorKind {
+        case .none: AnyShapeStyle(.tertiary)
+        // A cooldown is the service pacing us, not a failure — don't cry wolf.
+        case .rateLimited: AnyShapeStyle(.secondary)
+        default: AnyShapeStyle(.orange)
+        }
+    }
+
     private var footerText: String? {
-        guard let snap = state.snapshot else { return state.hasError ? "Unable to refresh" : nil }
+        guard let snap = state.snapshot else {
+            return state.hasError ? (headline ?? "Unable to refresh") : nil
+        }
         let updated = Fmt.updated(snap.fetchedAt, from: now)
-        return state.hasError ? "Unable to refresh · \(updated.lowercased())" : updated
+        guard let headline else { return updated }
+        return "\(headline) · \(updated.lowercased())"
+    }
+
+    /// What went wrong, phrased for a glance.
+    private var headline: String? {
+        switch state.lastErrorKind {
+        case .none:
+            return nil
+        case .rateLimited:
+            guard let until = state.retryAfter, until > now else { return "Retrying…" }
+            let seconds = Int(until.timeIntervalSince(now))
+            return seconds >= 60 ? "Retrying in \(Int(ceil(Double(seconds) / 60)))m"
+                                 : "Retrying in \(max(seconds, 1))s"
+        case .network:
+            return "Offline"
+        default:
+            return "Unable to refresh"
+        }
     }
 }
 

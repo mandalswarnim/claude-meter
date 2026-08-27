@@ -9,19 +9,24 @@ enum Credentials {
     struct Token {
         var accessToken: String
         var expiresAt: Date?
+
+        /// Treated as expired a minute early, so a request that would land just
+        /// past the boundary isn't spent.
+        var isExpired: Bool {
+            guard let expiresAt else { return false }
+            return expiresAt.timeIntervalSinceNow < 60
+        }
     }
 
+    /// The freshest usable token, or nil when every stored copy has expired.
+    /// Returning nil matters: the sandboxed widget can only read the on-disk
+    /// copy, which Claude Code leaves behind stale, and firing requests with a
+    /// dead token just earns rate limiting.
     static func token() -> Token? {
-        let keychain = fromKeychain()
-        let file = fromFile()
-        // Prefer whichever expires later (Claude Code rotates the Keychain copy).
-        switch (keychain, file) {
-        case let (k?, f?):
-            return (k.expiresAt ?? .distantPast) >= (f.expiresAt ?? .distantPast) ? k : f
-        case let (k?, nil): return k
-        case let (nil, f?): return f
-        default: return nil
-        }
+        let candidates = [fromKeychain(), fromFile()].compactMap { $0 }
+        let usable = candidates.filter { !$0.isExpired }
+        // Prefer whichever expires latest (Claude Code rotates the Keychain copy).
+        return usable.max { ($0.expiresAt ?? .distantPast) < ($1.expiresAt ?? .distantPast) }
     }
 
     private static func fromKeychain() -> Token? {

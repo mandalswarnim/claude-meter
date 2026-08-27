@@ -3,9 +3,10 @@ import Foundation
 // MARK: - Data model
 
 enum FetchErrorKind: String, Codable {
-    case auth       // credentials missing or rejected
-    case network    // no connectivity / timeout
-    case service    // Anthropic returned an error or unparseable payload
+    case auth        // credentials missing or rejected
+    case network     // no connectivity / timeout
+    case service     // Anthropic returned an error or unparseable payload
+    case rateLimited // too many usage checks; back off until retryAfter
 }
 
 struct UsageSnapshot: Codable {
@@ -35,9 +36,17 @@ struct StoreState: Codable {
     var lastAttemptAt: Date?
     var lastErrorKind: FetchErrorKind?
     var lastErrorMessage: String?
+    /// While set and in the future, no request may be sent — the server asked
+    /// us to slow down, and spending requests anyway only extends the block.
+    var retryAfter: Date?
     var history: [DayHistory] = []
 
     var hasError: Bool { lastErrorKind != nil }
+
+    func coolingDown(at now: Date = Date()) -> Bool {
+        guard let retryAfter else { return false }
+        return retryAfter > now
+    }
 }
 
 // MARK: - Formatting

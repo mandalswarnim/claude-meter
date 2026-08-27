@@ -43,12 +43,14 @@ struct UsageProvider: TimelineProvider {
             Store.trace("provider.getTimeline")
             var state = Store.load()
             let age = state.snapshot.map { Date().timeIntervalSince($0.fetchedAt) } ?? .infinity
-            // The companion app usually keeps the snapshot fresh; fetch ourselves
-            // if it hasn't run recently (or a reset boundary just passed).
+            // The companion app normally keeps the snapshot fresh — it holds the
+            // Keychain token, which this sandbox can't reach. Only reach for the
+            // network when the data is genuinely stale or a reset has passed,
+            // and never while the service has asked us to wait.
             let resetPassed = [state.snapshot?.sessionResetsAt, state.snapshot?.weeklyResetsAt]
                 .compactMap { $0 }
                 .contains { $0 <= Date() && $0 > (state.snapshot?.fetchedAt ?? .distantPast) }
-            if age > 180 || resetPassed {
+            if (age > 600 || resetPassed) && !state.coolingDown() && Credentials.token() != nil {
                 state = await Fetcher.refresh()
             }
 
@@ -58,7 +60,11 @@ struct UsageProvider: TimelineProvider {
             let entries = (0..<90).map { i in
                 UsageEntry(date: start.addingTimeInterval(Double(i) * 60), state: state)
             }
-            completion(Timeline(entries: entries, policy: .after(start.addingTimeInterval(10 * 60))))
+            // Come back when the cooldown lapses if one is in force, so a rate
+            // limit clears itself rather than lingering on screen.
+            let next = state.retryAfter.map { max($0, start.addingTimeInterval(60)) }
+                ?? start.addingTimeInterval(10 * 60)
+            completion(Timeline(entries: entries, policy: .after(next)))
         }
     }
 

@@ -24,7 +24,7 @@ struct PanelView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Button {
-                        controller.refresh()
+                        controller.refresh(userInitiated: true)
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }

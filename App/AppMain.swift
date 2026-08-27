@@ -12,7 +12,10 @@ final class UsageController: ObservableObject {
     @Published var isRefreshing = false
 
     private var timer: Timer?
-    let refreshInterval: TimeInterval = 180
+    private var retryTimer: Timer?
+    /// The usage endpoint rate-limits, and the app plus the widget both draw on
+    /// the same budget, so poll gently and lean on the cooldown for the rest.
+    let refreshInterval: TimeInterval = 300
 
     func start() {
         refresh()
@@ -28,15 +31,30 @@ final class UsageController: ObservableObject {
         }
     }
 
-    func refresh() {
+    /// `userInitiated` skips the coalescing window so the button always feels
+    /// live; the server's cooldown is still honoured inside Fetcher.
+    func refresh(userInitiated: Bool = false) {
         guard !isRefreshing else { return }
         isRefreshing = true
         Task {
-            let newState = await Fetcher.refresh()
+            let newState = await Fetcher.refresh(minimumInterval: userInitiated ? 0 : 60)
             self.state = newState
             self.isRefreshing = false
+            self.scheduleRetryIfCoolingDown()
             WidgetCenter.shared.reloadAllTimelines()
         }
+    }
+
+    /// Come back on our own the moment the cooldown lapses, so a rate limit
+    /// resolves itself instead of waiting for the next poll or a click.
+    private func scheduleRetryIfCoolingDown() {
+        retryTimer?.invalidate()
+        guard let until = state.retryAfter, until > Date() else { return }
+        let t = Timer(timeInterval: until.timeIntervalSinceNow + 1, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        retryTimer = t
     }
 
     var menuBarTitle: String {
@@ -118,8 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        // claudeusage://refresh — the widget's tap target.
-        Task { @MainActor in UsageController.shared.refresh() }
+        // claudeusage://refresh — the widget's tap target, so it counts as a tap.
+        Task { @MainActor in UsageController.shared.refresh(userInitiated: true) }
     }
 }
 

@@ -118,19 +118,32 @@ Run `claude` in a terminal — it refreshes its own credentials — then hit ref
 
 ## Behaviour and reliability
 
-- The app refreshes every 3 minutes, plus on wake, on panel open, and whenever
+- The app refreshes every 5 minutes, plus on wake, on panel open, and whenever
   the widget is tapped (`claudeusage://refresh`). Each result is written to
   `~/Library/Application Support/ClaudeCodeUsage/state.json` and the widget
   timelines are reloaded.
-- The widget renders that shared snapshot. If it is more than 3 minutes old, or a
+- The widget renders that shared snapshot. If it is more than 10 minutes old, or a
   reset boundary has passed, the widget fetches on its own — so it stays current
   even when the app isn't running, within WidgetKit's refresh budget.
 - **Countdowns tick without network traffic.** Each timeline carries 90
   per-minute entries, so "Resets in 3h 39m" becomes "3h 38m" on its own.
 - **Failure never fabricates data.** These states are distinguished and shown
-  honestly: loading, authentication required, network failure, service error, and
-  no-data-yet. On failure the last good snapshot stays visible, labelled
-  *"Unable to refresh · updated 12 min ago"* — never a fake `0%`, `100%`, or blank.
+  honestly: loading, authentication required, rate limited, network failure,
+  service error, and no-data-yet. On failure the last good snapshot stays
+  visible, labelled *"Unable to refresh · updated 12 min ago"* — never a fake
+  `0%`, `100%`, or blank.
+- **Rate limiting is handled as pacing, not failure.** The usage endpoint
+  returns HTTP 429 if it is polled too hard, and the app and widget share one
+  budget. When that happens the app honours `Retry-After` (clamped to 30s–15m),
+  refuses to send anything until the cooldown lapses, then retries on its own —
+  the widget schedules its next timeline for the same moment. The footer reads
+  *"Retrying in 2m · updated 3 min ago"* in a neutral colour rather than an
+  alarming "Unable to refresh".
+- **Expired tokens are never spent.** Claude Code leaves a stale copy of its
+  credentials on disk; a token past expiry is ignored rather than sent, since a
+  doomed request only draws down the rate limit. The widget, which is sandboxed
+  and cannot read the Keychain, therefore renders the app's snapshot instead of
+  failing on its own.
 - Reset countdowns come from the `resets_at` timestamps in the response. Nothing
   about the schedule is hardcoded.
 - The panel footer reports whether the widget extension has actually rendered
