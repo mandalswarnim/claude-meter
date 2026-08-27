@@ -40,6 +40,16 @@ enum Store {
     private(set) static var lastSaveError: String?
 
     static func save(_ state: StoreState) {
+        var state = state
+        // A snapshot is only ever added, never removed: if the caller has none
+        // (a fresh load, an unreadable file, a build that couldn't parse this
+        // schema), keep what is already on disk rather than erasing the last
+        // good reading and leaving the widget blank.
+        if state.snapshot == nil || state.history.isEmpty {
+            let existing = load()
+            if state.snapshot == nil { state.snapshot = existing.snapshot }
+            if state.history.isEmpty { state.history = existing.history }
+        }
         do {
             let (enc, _) = coder()
             let data = try enc.encode(state)

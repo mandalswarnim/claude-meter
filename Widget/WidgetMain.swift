@@ -51,7 +51,9 @@ struct UsageProvider: TimelineProvider {
                 .compactMap { $0 }
                 .contains { $0 <= Date() && $0 > (state.snapshot?.fetchedAt ?? .distantPast) }
             if (age > 600 || resetPassed) && !state.coolingDown() && Credentials.token() != nil {
-                state = await Fetcher.refresh()
+                // minimumInterval coalesces the several timeline requests macOS
+                // issues at once (one per size/instance) into a single fetch.
+                state = await Fetcher.refresh(minimumInterval: 120)
             }
 
             // Per-minute entries keep the countdowns and "Updated…" text moving

@@ -144,6 +144,11 @@ Run `claude` in a terminal — it refreshes its own credentials — then hit ref
   doomed request only draws down the rate limit. The widget, which is sandboxed
   and cannot read the Keychain, therefore renders the app's snapshot instead of
   failing on its own.
+- **Stored data survives schema changes.** State is decoded leniently (an
+  unrecognised value from a different build is tolerated, not fatal) and a save
+  can only ever add a snapshot, never remove one. An earlier version lost the
+  last good reading when one build wrote a value another couldn't parse, leaving
+  the widget blank.
 - Reset countdowns come from the `resets_at` timestamps in the response. Nothing
   about the schedule is hardcoded.
 - The panel footer reports whether the widget extension has actually rendered

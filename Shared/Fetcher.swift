@@ -18,10 +18,15 @@ enum Fetcher {
 
         if state.coolingDown(at: now) { return state }
         if minimumInterval > 0, let last = state.lastAttemptAt,
-           now.timeIntervalSince(last) < minimumInterval, !state.hasError {
+           now.timeIntervalSince(last) < minimumInterval {
             return state
         }
+        // Claim the attempt on disk *before* going to the network. macOS may run
+        // several timeline requests at once, in separate processes; without a
+        // claim they all see the same stale timestamp and fire together, which
+        // is what earns the 429 in the first place.
         state.lastAttemptAt = now
+        Store.save(state)
 
         guard let token = Credentials.token() else {
             state.lastErrorKind = .auth
@@ -42,8 +47,12 @@ enum Fetcher {
                 state.lastErrorKind = .auth
                 state.lastErrorMessage = "Session expired — open Claude Code to sign in again"
             } else if status == 429 {
-                let wait = retryAfterSeconds(response) ?? 120
+                // Trust the server's figure; otherwise double the last wait, so
+                // a sustained limit is met with patience rather than repetition.
+                let wait = retryAfterSeconds(response)
+                    ?? min(max((state.rateLimitBackoff ?? 60) * 2, 120), 900)
                 state.lastErrorKind = .rateLimited
+                state.rateLimitBackoff = wait
                 state.retryAfter = Date().addingTimeInterval(wait)
                 state.lastErrorMessage = "Claude is limiting usage checks — pausing briefly"
             } else if (200..<300).contains(status), let snapshot = parse(data) {
@@ -51,6 +60,7 @@ enum Fetcher {
                 state.lastErrorKind = nil
                 state.lastErrorMessage = nil
                 state.retryAfter = nil
+                state.rateLimitBackoff = nil
                 recordHistory(&state, snapshot: snapshot)
             } else {
                 state.lastErrorKind = .service

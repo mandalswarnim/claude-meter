@@ -7,6 +7,13 @@ enum FetchErrorKind: String, Codable {
     case network     // no connectivity / timeout
     case service     // Anthropic returned an error or unparseable payload
     case rateLimited // too many usage checks; back off until retryAfter
+
+    /// Tolerates values written by a different build. A strict decode here
+    /// fails the whole StoreState, which used to discard the last good reading.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = FetchErrorKind(rawValue: raw) ?? .service
+    }
 }
 
 struct UsageSnapshot: Codable {
@@ -39,6 +46,9 @@ struct StoreState: Codable {
     /// While set and in the future, no request may be sent — the server asked
     /// us to slow down, and spending requests anyway only extends the block.
     var retryAfter: Date?
+    /// How long the last cooldown was, so consecutive rate limits back off
+    /// further instead of retrying at the same cadence that caused them.
+    var rateLimitBackoff: TimeInterval?
     var history: [DayHistory] = []
 
     var hasError: Bool { lastErrorKind != nil }
@@ -46,6 +56,21 @@ struct StoreState: Codable {
     func coolingDown(at now: Date = Date()) -> Bool {
         guard let retryAfter else { return false }
         return retryAfter > now
+    }
+
+    init() {}
+
+    /// Every field is optional on the way in, so a file written by an older or
+    /// newer build still yields whatever it does contain rather than nothing.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        snapshot = try? c.decodeIfPresent(UsageSnapshot.self, forKey: .snapshot)
+        lastAttemptAt = try? c.decodeIfPresent(Date.self, forKey: .lastAttemptAt)
+        lastErrorKind = try? c.decodeIfPresent(FetchErrorKind.self, forKey: .lastErrorKind)
+        lastErrorMessage = try? c.decodeIfPresent(String.self, forKey: .lastErrorMessage)
+        retryAfter = try? c.decodeIfPresent(Date.self, forKey: .retryAfter)
+        rateLimitBackoff = try? c.decodeIfPresent(TimeInterval.self, forKey: .rateLimitBackoff)
+        history = (try? c.decodeIfPresent([DayHistory].self, forKey: .history)) as? [DayHistory] ?? []
     }
 }
 
