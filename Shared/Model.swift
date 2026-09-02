@@ -31,6 +31,30 @@ struct UsageSnapshot: Codable {
     var fetchedAt: Date
 }
 
+/// Tolerant decoding, for the same reason as StoreState's below: Swift's
+/// synthesized decoder ignores property defaults, so `extraUsageEnabled` was a
+/// required key and a file written by a build without it threw — discarding the
+/// whole snapshot and leaving the widget blank, the exact failure the lenient
+/// decoding elsewhere exists to prevent. Declared in an extension so the
+/// memberwise initialiser survives.
+extension UsageSnapshot {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // The one field a snapshot is meaningless without: if it is absent the
+        // snapshot is dropped rather than shown with an invented timestamp.
+        fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
+        sessionPercent = try? c.decode(Int.self, forKey: .sessionPercent)
+        sessionResetsAt = try? c.decode(Date.self, forKey: .sessionResetsAt)
+        weeklyPercent = try? c.decode(Int.self, forKey: .weeklyPercent)
+        weeklyResetsAt = try? c.decode(Date.self, forKey: .weeklyResetsAt)
+        extraUsageEnabled = (try? c.decode(Bool.self, forKey: .extraUsageEnabled)) ?? false
+        extraUsed = try? c.decode(Double.self, forKey: .extraUsed)
+        extraLimit = try? c.decode(Double.self, forKey: .extraLimit)
+        extraCurrency = try? c.decode(String.self, forKey: .extraCurrency)
+        extraPercent = try? c.decode(Double.self, forKey: .extraPercent)
+    }
+}
+
 struct DayHistory: Codable, Identifiable {
     var day: String            // "2026-08-26" local calendar day
     var maxSession: Int

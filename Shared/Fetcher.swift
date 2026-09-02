@@ -29,10 +29,10 @@ enum Fetcher {
         Store.save(state)
 
         guard let token = Credentials.token() else {
-            state.lastErrorKind = .auth
-            state.lastErrorMessage = "Claude Code sign-in has expired"
-            Store.save(state)
-            return state
+            return commit { next in
+                next.lastErrorKind = .auth
+                next.lastErrorMessage = "Claude Code sign-in has expired"
+            }
         }
 
         var request = URLRequest(url: endpoint)
@@ -44,32 +44,60 @@ enum Fetcher {
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 || status == 403 {
-                state.lastErrorKind = .auth
-                state.lastErrorMessage = "Session expired — open Claude Code to sign in again"
+                return commit { next in
+                    next.lastErrorKind = .auth
+                    next.lastErrorMessage = "Session expired — open Claude Code to sign in again"
+                }
             } else if status == 429 {
-                // Trust the server's figure; otherwise double the last wait, so
-                // a sustained limit is met with patience rather than repetition.
-                let wait = retryAfterSeconds(response)
-                    ?? min(max((state.rateLimitBackoff ?? 60) * 2, 120), 900)
-                state.lastErrorKind = .rateLimited
-                state.rateLimitBackoff = wait
-                state.retryAfter = Date().addingTimeInterval(wait)
-                state.lastErrorMessage = "Claude is limiting usage checks — pausing briefly"
+                return commit { next in
+                    // Trust the server's figure; otherwise double the last wait, so
+                    // a sustained limit is met with patience rather than repetition.
+                    let wait = retryAfterSeconds(response)
+                        ?? min(max((next.rateLimitBackoff ?? 60) * 2, 120), 900)
+                    next.lastErrorKind = .rateLimited
+                    next.rateLimitBackoff = wait
+                    next.retryAfter = Date().addingTimeInterval(wait)
+                    next.lastErrorMessage = "Claude is limiting usage checks — pausing briefly"
+                }
             } else if (200..<300).contains(status), let snapshot = parse(data) {
-                state.snapshot = snapshot
-                state.lastErrorKind = nil
-                state.lastErrorMessage = nil
-                state.retryAfter = nil
-                state.rateLimitBackoff = nil
-                recordHistory(&state, snapshot: snapshot)
+                return commit { next in
+                    next.snapshot = snapshot
+                    next.lastErrorKind = nil
+                    next.lastErrorMessage = nil
+                    // Only drop a cooldown that has already lapsed. One still in
+                    // force was set by another process after this request left;
+                    // it speaks for the shared budget, not for this one reply,
+                    // and clearing it would let the next poll fire inside the
+                    // server's window and earn a fresh 429.
+                    if !next.coolingDown() {
+                        next.retryAfter = nil
+                        next.rateLimitBackoff = nil
+                    }
+                    recordHistory(&next, snapshot: snapshot)
+                }
             } else {
-                state.lastErrorKind = .service
-                state.lastErrorMessage = "Claude returned an unexpected response (\(status))"
+                return commit { next in
+                    next.lastErrorKind = .service
+                    next.lastErrorMessage = "Claude returned an unexpected response (\(status))"
+                }
             }
         } catch {
-            state.lastErrorKind = .network
-            state.lastErrorMessage = "Network unavailable"
+            return commit { next in
+                next.lastErrorKind = .network
+                next.lastErrorMessage = "Network unavailable"
+            }
         }
+    }
+
+    /// Applies a result to whatever is on disk *now*, rather than to the copy
+    /// loaded before the request went out. A fetch can be in flight for 15
+    /// seconds, and the app and the widget refresh independently, so writing
+    /// back the stale copy rolled back whatever the other process had learned
+    /// meanwhile — most damagingly a rate-limit cooldown, which then let the
+    /// next poll fire inside the server's window and earn a fresh 429.
+    private static func commit(_ changes: (inout StoreState) -> Void) -> StoreState {
+        var state = Store.load()
+        changes(&state)
         Store.save(state)
         return state
     }
