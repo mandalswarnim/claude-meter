@@ -4,7 +4,13 @@ import ServiceManagement
 struct PanelView: View {
     @EnvironmentObject private var controller: UsageController
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var showHistory = false
+    @State private var showHistory: Bool
+
+    /// `expandHistory` exists for the screenshot renderer, which wants the
+    /// history section open; the popover itself always starts collapsed.
+    init(expandHistory: Bool = false) {
+        _showHistory = State(initialValue: expandHistory)
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in

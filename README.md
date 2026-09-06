@@ -50,20 +50,22 @@ above 90%, so a glance tells you where you stand.
 
 **Medium — light and dark**
 
-<img src="docs/medium-light.png" width="420"> <img src="docs/medium-dark.png" width="420">
+<img src="docs/medium-light.png" width="400"> <img src="docs/medium-dark.png" width="400">
 
 **Small and large**
 
-<img src="docs/small-light.png" width="200"> <img src="docs/large-dark.png" width="330">
+<img src="docs/small-light.png" width="190"> <img src="docs/large-dark.png" width="400">
 
-**Error state** — the last good reading stays on screen, clearly marked. It never
-invents a number or falls back to a misleading 0%.
+**Error state** — the last good reading stays on screen, and the footer says what
+went wrong (here, the network is unreachable). It never invents a number or falls
+back to a misleading 0%.
 
-<img src="docs/medium-error-light.png" width="420">
+<img src="docs/medium-error-light.png" width="400">
 
-**Companion panel**
+**Companion panel** — refresh, per-day history, open-at-login, and whether the
+widget itself is alive.
 
-<img src="docs/panel-light.png" width="320"> <img src="docs/panel-dark.png" width="320">
+<img src="docs/panel-light.png" width="300"> <img src="docs/panel-dark.png" width="300">
 
 ## Requirements
 
@@ -130,8 +132,10 @@ Run `claude` in a terminal — it refreshes its own credentials — then hit ref
 - **Failure never fabricates data.** These states are distinguished and shown
   honestly: loading, authentication required, rate limited, network failure,
   service error, and no-data-yet. On failure the last good snapshot stays
-  visible, labelled *"Unable to refresh · updated 12 min ago"* — never a fake
-  `0%`, `100%`, or blank.
+  visible, labelled with what actually went wrong — *"Offline · updated 12 min
+  ago"* when the network is unreachable, *"Unable to refresh · …"* when the
+  service errors, *"Sign in via Claude Code"* when the token has expired — never
+  a fake `0%`, `100%`, or blank.
 - **Rate limiting is handled as pacing, not failure.** The usage endpoint
   returns HTTP 429 if it is polled too hard, and the app and widget share one
   budget. When that happens the app honours `Retry-After` (clamped to 30s–15m),
@@ -171,7 +175,10 @@ The app and the widget share `Shared/UsageViews.swift`, so what you see in the
 gallery, on the desktop, and in the panel is literally the same SwiftUI code.
 
 `App/PreviewRenderer.swift` renders every size in both colour schemes to PNGs
-without needing to place a widget by hand — how the screenshots above were made:
+without needing to place a widget by hand — how the screenshots above were made.
+It draws the widget faces with `ImageRenderer` and the panel through a real
+offscreen window, because AppKit-backed controls (the refresh button, the
+checkbox, Quit) only draw once they are in one:
 
 ```bash
 CCU_RENDER_PREVIEWS=/some/dir "build/ClaudeMeter.app/Contents/MacOS/ClaudeUsage"
@@ -269,6 +276,10 @@ Expand the hidden section and drag it out.
 
 **"Sign in via Claude Code."** The stored token expired. Run `claude`, then refresh.
 
+**The build aborts with `Symbol not found: _$s22_CompilerSwiftIfConfig…`.** A
+Command Line Tools update left a stale `.toolchain-shim/` behind. Run
+`rm -rf .toolchain-shim && ./build.sh`.
+
 **The widget shows an old timestamp.** That is by design — it is telling you the
 truth about when the data was last confirmed. Tap it to force a refresh; if the
 app is not running, launch it.
@@ -287,6 +298,15 @@ symlinked, the duplicate modulemap left out. The script detects the condition an
 skips the shim entirely on a healthy install. If your CLT is fine, you will never
 see the directory. (The underlying fix, if you want it:
 `sudo rm /Library/Developer/CommandLineTools/usr/include/swift/module.modulemap`.)
+
+**After a Command Line Tools update, delete the shim.** It holds *copies* of
+`swift-frontend` and `swift-driver` that then no longer match the toolchain's
+dylibs, and `build.sh` only rebuilds the shim when it is missing — so the build
+aborts with `dyld: Symbol not found: _$s22_CompilerSwiftIfConfig…`. One line:
+
+```bash
+rm -rf .toolchain-shim && ./build.sh
+```
 
 ## Limitations
 
