@@ -58,7 +58,6 @@ enum PreviewRenderer {
 
     private static func render(_ view: some View, size: CGSize, to url: URL) {
         let appearance = NSAppearance(named: url.lastPathComponent.contains("dark") ? .darkAqua : .aqua)
-        NSAppearance.currentDrawing().performAsCurrentDrawingAppearance {}
         NSApp.appearance = appearance
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2

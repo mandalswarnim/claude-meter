@@ -94,7 +94,7 @@ struct StoreState: Codable {
         lastErrorMessage = try? c.decodeIfPresent(String.self, forKey: .lastErrorMessage)
         retryAfter = try? c.decodeIfPresent(Date.self, forKey: .retryAfter)
         rateLimitBackoff = try? c.decodeIfPresent(TimeInterval.self, forKey: .rateLimitBackoff)
-        history = (try? c.decodeIfPresent([DayHistory].self, forKey: .history)) as? [DayHistory] ?? []
+        history = (try? c.decode([DayHistory].self, forKey: .history)) ?? []
     }
 }
 
@@ -130,18 +130,29 @@ enum Fmt {
         return f.string(from: NSNumber(value: value)) ?? String(format: "%.2f %@", value, currency)
     }
 
-    static func localDayKey(_ date: Date) -> String {
+    /// The storage key for a local calendar day. Pinned to POSIX/Gregorian: with
+    /// the system locale, "yyyy" follows the system *calendar*, so under a
+    /// Japanese-calendar region today keys as "0008-09-20" — which still sorts and
+    /// round-trips, but is not the ISO date the rest of the app assumes.
+    /// The timezone stays local; the day boundary is meant to be the user's.
+    private static let dayKeyFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        return f
+    }()
+
+    static func localDayKey(_ date: Date) -> String {
+        dayKeyFormatter.string(from: date)
     }
 
     static func dayLabel(_ key: String, now: Date) -> String {
         if key == localDayKey(now) { return "Today" }
         if key == localDayKey(now.addingTimeInterval(-86_400)) { return "Yesterday" }
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        guard let d = f.date(from: key) else { return key }
+        // Parsed with the same pinned formatter that wrote the key; only the
+        // *display* below follows the user's locale.
+        guard let d = dayKeyFormatter.date(from: key) else { return key }
         let out = DateFormatter()
         out.dateFormat = "EEE d MMM"
         return out.string(from: d)
