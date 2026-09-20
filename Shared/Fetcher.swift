@@ -182,13 +182,21 @@ enum Fetcher {
 
     private static func recordHistory(_ state: inout StoreState, snapshot: UsageSnapshot) {
         let key = Fmt.localDayKey(Date())
-        let session = snapshot.sessionPercent ?? 0
-        let weekly = snapshot.weeklyPercent ?? 0
+        // `parse` only needs *one* of the two rows to accept a payload, so either
+        // figure can be nil here. Treating nil as 0 would overwrite a real reading
+        // with an invented one — the same "never fabricate a number" rule the
+        // parser follows. A missing row leaves the day's stored value alone.
         if let i = state.history.firstIndex(where: { $0.day == key }) {
-            state.history[i].maxSession = max(state.history[i].maxSession, session)
-            state.history[i].lastWeekly = weekly
+            if let session = snapshot.sessionPercent {
+                state.history[i].maxSession = max(state.history[i].maxSession, session)
+            }
+            if let weekly = snapshot.weeklyPercent {
+                state.history[i].lastWeekly = weekly
+            }
         } else {
-            state.history.append(DayHistory(day: key, maxSession: session, lastWeekly: weekly))
+            state.history.append(DayHistory(day: key,
+                                            maxSession: snapshot.sessionPercent ?? 0,
+                                            lastWeekly: snapshot.weeklyPercent ?? 0))
             state.history = Array(state.history.suffix(14))
         }
     }
