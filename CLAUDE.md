@@ -49,7 +49,27 @@ CCU_RENDER_PREVIEWS=/some/dir build/ClaudeMeter.app/Contents/MacOS/ClaudeUsage
 
 `build.sh` may create `.toolchain-shim/` — a shadow toolchain that works around a CLT
 install carrying duplicate `SwiftBridging` modulemaps. It is created only when that
-condition is detected; do not check it in.
+condition is detected; do not check it in. It *copies* `swift-frontend` but symlinks
+`usr/lib`, so a CLT update leaves an old compiler pointed at new dylibs and it aborts
+with `dyld: Symbol not found`. `build.sh` compares mtimes and rebuilds the shim when
+that happens; if you ever see that abort, `rm -rf .toolchain-shim` is the manual fix.
+
+### No `@State` — the CLT ships no macro plugin
+
+As of the Swift 6.4 CLT, SwiftUI's `@State` **attribute** resolves to a macro
+(`SwiftUIMacros.StateMacro`) whose plugin ships only inside Xcode, so using it fails
+with "plugin for module 'SwiftUIMacros' not found". The `State` property wrapper
+itself is still in SwiftUICore, and SwiftUI locates storage by walking the view's
+`DynamicProperty` fields rather than by name, so declare it directly instead:
+
+```swift
+private var _showHistory = State(initialValue: false)   // not @State
+// ... and use _showHistory.projectedValue where $showHistory would go
+```
+
+`@Environment`, `@EnvironmentObject`, `@StateObject`, `@ObservedObject`, `@Binding`
+and `@Published` are ordinary property wrappers and are all still fine. Only `@State`
+(and `@Entry`, `@Animatable`, `@Previewable`) became macros.
 
 ## Architecture
 

@@ -21,6 +21,14 @@ APPEX="$APP/Contents/PlugIns/ClaudeUsageWidget.appex"
 SWIFTC="$CLT/usr/bin/swiftc"
 if [ -f "$CLT/usr/include/swift/module.modulemap" ] && [ -f "$CLT/usr/include/swift/bridging.modulemap" ]; then
     SHIM="$PWD/.toolchain-shim"
+    # The shim *copies* swift-frontend but symlinks usr/lib, so a CLT update
+    # leaves an old compiler pointed at new dylibs and it dies at launch with
+    # "Symbol not found". Rebuild whenever the CLT's copy is newer than ours.
+    if [ -x "$SHIM/usr/bin/swift-frontend" ] && \
+       [ "$CLT/usr/bin/swift-frontend" -nt "$SHIM/usr/bin/swift-frontend" ]; then
+        echo "Command Line Tools updated since the shadow toolchain was built; rebuilding it…"
+        rm -rf "$SHIM"
+    fi
     if [ ! -x "$SHIM/usr/bin/swiftc" ]; then
         echo "Setting up shadow toolchain (CLT has duplicate SwiftBridging modulemap)…"
         rm -rf "$SHIM"; mkdir -p "$SHIM/usr/bin" "$SHIM/usr/include/swift"

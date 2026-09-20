@@ -3,8 +3,22 @@ import ServiceManagement
 
 struct PanelView: View {
     @EnvironmentObject private var controller: UsageController
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var showHistory: Bool
+
+    // Hand-rolled `@State`. As of the Swift 6.4 Command Line Tools the `@State`
+    // *attribute* resolves to a macro implemented by a SwiftUIMacros plugin that
+    // the CLT does not ship (it lives in Xcode), so the attribute form fails to
+    // build here with "plugin for module 'SwiftUIMacros' not found". The `State`
+    // property wrapper itself is still in SwiftUICore, and SwiftUI finds storage
+    // by walking the view's DynamicProperty fields rather than by name, so
+    // declaring the wrapper directly is the same thing the macro would expand to.
+    // Use `_name.projectedValue` where `$name` would normally go.
+    private var _launchAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled)
+    private var _showHistory = State(initialValue: false)
+
+    private var launchAtLogin: Bool {
+        get { _launchAtLogin.wrappedValue }
+        nonmutating set { _launchAtLogin.wrappedValue = newValue }
+    }
 
     /// `expandHistory` exists for the screenshot renderer, which wants the
     /// history section open; the popover itself always starts collapsed.
@@ -63,7 +77,7 @@ struct PanelView: View {
             statusRow(state: state, now: now)
 
             if !state.history.isEmpty {
-                DisclosureGroup(isExpanded: $showHistory) {
+                DisclosureGroup(isExpanded: _showHistory.projectedValue) {
                     historyRows(state: state, now: now)
                 } label: {
                     Text("Usage history")
@@ -74,7 +88,7 @@ struct PanelView: View {
 
             Divider()
 
-            Toggle("Open at login", isOn: $launchAtLogin)
+            Toggle("Open at login", isOn: _launchAtLogin.projectedValue)
                 .font(.caption)
                 .toggleStyle(.checkbox)
                 .onChange(of: launchAtLogin) { _, on in
