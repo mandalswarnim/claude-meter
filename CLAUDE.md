@@ -17,6 +17,15 @@ cp -R build/ClaudeMeter.app /Applications/   # must live in /Applications for th
 open /Applications/ClaudeMeter.app
 ```
 
+Always run the `/Applications` copy, never `build/ClaudeMeter.app` directly. The widget is
+always loaded from `/Applications`, so launching from `build/` leaves the widget on whatever
+build was last installed. It also leaves two app instances running if the installed one is
+open too: both refresh on their own timers, which doubles calls against the shared
+rate-limit budget, and the older one keeps writing `state.json` with superseded logic. To
+reinstall, `killall ClaudeUsage` and `rm -rf /Applications/ClaudeMeter.app` before the `cp`
+(copying over an existing bundle can leave stale files behind), then `killall chronod` so
+the widget picks up the new build.
+
 `build.sh` compiles twice from one source tree:
 
 - **App** — `Shared/*.swift App/*.swift` → `Contents/MacOS/ClaudeUsage`, unsandboxed.
